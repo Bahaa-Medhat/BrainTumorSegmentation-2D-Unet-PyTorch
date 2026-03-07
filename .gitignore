@@ -1,3 +1,5 @@
 BraTS2020_training_data/
 BraTS.zip
 BraTS20 Training Metadata.csv
+*.csv
+*.pth
