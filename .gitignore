@@ -3,3 +3,7 @@ BraTS.zip
 BraTS20 Training Metadata.csv
 *.csv
 *.pth
+cache_3d/
+cache_3d_singlestage/
+__pycache__/
+.claude/

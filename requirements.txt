@@ -1,0 +1,63 @@
+# =============================================================================
+# BraTS 2020 — 2D/3D cascade for Enhancing Tumor segmentation
+# Thesis: "Pre-Processing Aided Divide and Conquer for Brain Tumor
+#          Segmentation: The Case of Enhancing Tumor Using U-Net"
+# =============================================================================
+#
+# INSTALL
+# -------
+# PyTorch with CUDA must be installed SEPARATELY so you pick the right
+# CUDA build for your GPU.  Example for CUDA 12.1:
+#
+#     pip install torch==2.2.* torchvision==0.17.* --index-url https://download.pytorch.org/whl/cu121
+#
+# (Find the right command for your CUDA version at https://pytorch.org/get-started/locally/)
+#
+# Then install the rest:
+#
+#     pip install -r requirements.txt
+#
+# =============================================================================
+
+# ----- Core scientific stack -------------------------------------------------
+numpy>=1.24
+scipy>=1.10
+pandas>=2.0
+matplotlib>=3.7
+h5py>=3.9
+Pillow>=10.0
+tqdm>=4.65
+
+# ----- Image I/O & classical CV (preprocessing.py) ---------------------------
+opencv-python>=4.8          # CLAHE, Sobel
+SimpleITK>=2.3              # N4 bias correction (optional but recommended)
+scikit-image>=0.22          # misc filters; sometimes used by smp utilities
+nibabel>=5.1                # .nii.gz loader (for original BraTS .nii data, if used)
+
+# ----- Augmentation ----------------------------------------------------------
+albumentations>=1.3         # 2D Stage-A/B augmentations
+
+# ----- Segmentation models ---------------------------------------------------
+segmentation-models-pytorch>=0.3.3    # 2D Stage-A/B U-Net with ImageNet encoders
+timm>=0.9                              # modern encoders used by smp
+efficientnet-pytorch>=0.7              # EfficientNet encoders for smp
+pretrainedmodels>=0.7                  # legacy encoders used by smp
+
+# ----- 3D deep learning (Stage-B 3D U-Net) -----------------------------------
+monai>=1.3                  # 3D U-Net, losses, utilities
+
+# ----- Jupyter / Notebook ----------------------------------------------------
+jupyter>=1.0
+ipykernel>=6.25
+ipywidgets>=8.0             # tqdm progress bars inside notebooks
+
+# ----- Optional dev / visualisation ------------------------------------------
+seaborn>=0.12               # prettier ablation plots
+tensorboard>=2.14           # optional: SWA / training curves
+
+# =============================================================================
+# Not included (install separately if / when needed):
+#   torch, torchvision              -> see PyTorch install note above
+#   cudatoolkit                     -> provided by the torch wheel
+#   jupytext                        -> only if you want to diff the notebooks
+# =============================================================================

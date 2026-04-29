@@ -1,0 +1,90 @@
+[
+  {
+    "name": "baseline",
+    "overrides": {},
+    "task_weights": [
+      0.2,
+      0.3,
+      0.5
+    ],
+    "test_WT": 0.8206958518425623,
+    "test_TC": 0.8123057832320532,
+    "test_ET": 0.7291626813014348,
+    "reused_from": "task_weighting_results.json (et_heavy)"
+  },
+  {
+    "name": "n4",
+    "overrides": {
+      "use_n4": true
+    },
+    "task_weights": [
+      0.2,
+      0.3,
+      0.5
+    ],
+    "test_WT": 0.8103551376859347,
+    "test_TC": 0.8082092752059301,
+    "test_ET": 0.7253635622064273
+  },
+  {
+    "name": "nyul",
+    "overrides": {
+      "use_nyul": true
+    },
+    "task_weights": [
+      0.2,
+      0.3,
+      0.5
+    ],
+    "test_WT": 0.8097429512937864,
+    "test_TC": 0.8117837049563725,
+    "test_ET": 0.7285457479953766
+  },
+  {
+    "name": "clahe",
+    "overrides": {
+      "use_clahe_t1ce": true,
+      "use_clahe_flair": true
+    },
+    "task_weights": [
+      0.2,
+      0.3,
+      0.5
+    ],
+    "test_WT": 0.8255984350045522,
+    "test_TC": 0.825801705121994,
+    "test_ET": 0.7340676587820053
+  },
+  {
+    "name": "enh_channels",
+    "overrides": {
+      "use_enhancement_channels": true
+    },
+    "task_weights": [
+      0.2,
+      0.3,
+      0.5
+    ],
+    "test_WT": 0.8081885130206744,
+    "test_TC": 0.817029178639253,
+    "test_ET": 0.7295876944065094
+  },
+  {
+    "name": "full",
+    "overrides": {
+      "use_n4": true,
+      "use_nyul": true,
+      "use_clahe_t1ce": true,
+      "use_clahe_flair": true,
+      "use_enhancement_channels": true
+    },
+    "task_weights": [
+      0.2,
+      0.3,
+      0.5
+    ],
+    "test_WT": 0.8567583819230398,
+    "test_TC": 0.8158479543526967,
+    "test_ET": 0.7330803475777308
+  }
+]
