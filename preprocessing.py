@@ -300,6 +300,115 @@ def apply_clahe(img: np.ndarray,
     return (out.astype(np.float32) / 255.0) * (a_max - a_min) + a_min
 
 
+def apply_clahe_3d(vol: np.ndarray,
+                    clip_limit: float = 2.0,
+                    tile_grid: Tuple[int, int] = (8, 8),
+                    inter_slice_blend: float = 0.5,
+                    ) -> np.ndarray:
+    """3D-aware CLAHE: per-slice CLAHE followed by axial smoothing.
+
+    True 3D CLAHE (joint histogram across (D, H, W)) is expensive and rarely
+    helpful at BraTS slice spacing.  Instead we apply 2D CLAHE per slice and
+    then blend each slice with a small fraction of its axial neighbours so
+    adjacent-slice correlation does not drop below the per-slice baseline.
+    `inter_slice_blend=0.5` means each output slice is the average of itself
+    and the mean of its two neighbours, weighted equally.
+    """
+    if vol.ndim != 3:
+        raise ValueError(f"apply_clahe_3d expects (D, H, W); got {vol.shape}")
+    per_slice = np.stack(
+        [apply_clahe(vol[d], clip_limit=clip_limit, tile_grid=tile_grid)
+         for d in range(vol.shape[0])], axis=0
+    ).astype(np.float32)
+    if inter_slice_blend <= 0 or per_slice.shape[0] < 3:
+        return per_slice
+    neigh = np.empty_like(per_slice)
+    neigh[1:-1] = 0.5 * (per_slice[:-2] + per_slice[2:])
+    neigh[0] = per_slice[1]
+    neigh[-1] = per_slice[-2]
+    return ((1.0 - inter_slice_blend) * per_slice
+            + inter_slice_blend * neigh).astype(np.float32)
+
+
+def apply_global_histogram_equalisation(img: np.ndarray,
+                                         num_bins: int = 256,
+                                         brain_mask: Optional[np.ndarray] = None,
+                                         ) -> np.ndarray:
+    """Classic global histogram equalisation on a 2D slice.
+
+    Maps the image's CDF to a uniform distribution, flattening the histogram.
+    Provided as the *non-adaptive* counterpart to CLAHE in the preprocessing
+    ablation; CLAHE should outperform this on tumour boundaries because
+    global HE blows out high-intensity tissue at the expense of mid-range
+    contrast.
+
+    If `brain_mask` is given the CDF is computed only on in-brain voxels;
+    background voxels are mapped to 0 in the output.
+    """
+    a = img.astype(np.float32)
+    if brain_mask is None:
+        # Source BraTS h5 is already z-scored, so background is a large
+        # peak at the lowest value (e.g. -0.57), not at 0.  Treat anything
+        # strictly above the per-slice min as in-brain.
+        floor = float(a.min()) + 1e-3
+        brain_mask = (a > floor)
+    bm = brain_mask.astype(bool)
+    if bm.sum() < 2:
+        return a
+    vals = a[bm]
+    a_min, a_max = float(vals.min()), float(vals.max())
+    if a_max - a_min < 1e-7:
+        return a
+    hist, edges = np.histogram(vals, bins=num_bins, range=(a_min, a_max))
+    cdf = hist.cumsum().astype(np.float64)
+    cdf = (cdf - cdf.min()) / max(cdf.max() - cdf.min(), 1.0)
+    bin_idx = np.clip(((a - a_min) / (a_max - a_min) * num_bins).astype(np.int32),
+                       0, num_bins - 1)
+    out = cdf[bin_idx].astype(np.float32) * (a_max - a_min) + a_min
+    out = np.where(bm, out, 0.0)
+    return out.astype(np.float32)
+
+
+def apply_unsharp_mask(img: np.ndarray,
+                        sigma: float = 1.0,
+                        amount: float = 1.0,
+                        ) -> np.ndarray:
+    """Unsharp masking: `out = img + amount * (img - blur(img, sigma))`.
+
+    Boosts high-frequency content (edges, ET ring boundaries) by adding a
+    scaled copy of the high-pass residual.  `amount=1.0` is a moderate
+    boost; values above ~2.0 start amplifying noise visibly.
+
+    Works on any-dimensional input: pass a 2D slice for per-slice unsharp,
+    or a 3D (D, H, W) volume for volumetric unsharp (the Gaussian filter is
+    isotropic and separable, so the cost is the same per voxel).
+    """
+    from scipy.ndimage import gaussian_filter
+    a = img.astype(np.float32)
+    blur = gaussian_filter(a, sigma=sigma)
+    out = a + amount * (a - blur)
+    return out.astype(np.float32)
+
+
+def apply_unsharp_mask_3d(vol: np.ndarray,
+                           sigma: float = 1.0,
+                           amount: float = 1.0,
+                           ) -> np.ndarray:
+    """Volumetric unsharp masking on a (D, H, W) volume.
+
+    Equivalent to `apply_unsharp_mask` with a 3D Gaussian (isotropic sigma),
+    exposed as a separate name so the notebook's preprocessing pipeline can
+    call it explicitly without relying on the dimensionality of the input.
+
+    Unlike per-slice unsharp, the high-frequency residual is consistent across
+    adjacent axial slices, so the 3D variant does not introduce the per-slice
+    banding artefact that motivated the CLAHE-3D experiment (P3).
+    """
+    if vol.ndim != 3:
+        raise ValueError(f"apply_unsharp_mask_3d expects (D, H, W); got {vol.shape}")
+    return apply_unsharp_mask(vol, sigma=sigma, amount=amount)
+
+
 # ===========================================================================
 # Section 3 - BETWEEN-STAGES (ROI-level) -- the thesis contribution
 # ===========================================================================
@@ -487,18 +596,37 @@ def enhancement_map_alpha(t1ce: np.ndarray,
                            t1: np.ndarray,
                            alpha: float = 1.0,
                            normalise: bool = True,
+                           brain_mask: Optional[np.ndarray] = None,
+                           norm_percentile: float = 99.0,
                            ) -> np.ndarray:
     """Gadolinium-enhancement prior: `clip(T1ce - alpha * T1, 0)`.
 
-    ET is (by definition) the sub-region that enhances after contrast agent
-    administration.  Subtracting T1 from T1ce isolates that differential;
-    varying `alpha` in {0.8, 1.0, 1.2} gives a multi-scale family of ET
-    priors for the channel stack.  Non-linear clipping at 0 prevents
-    negative values from confusing Stage-B.
+    Brain-masked + percentile-normalised (combination of fixes #4 and #2):
+      - Voxels outside the brain are zeroed before subtraction so air/skull
+        artefacts do not pollute the difference map.
+      - Normalisation divides by the `norm_percentile` of *positive* in-brain
+        voxels (default 99th percentile) instead of the global max.  This is
+        robust to a handful of very bright vessel / fat / bias-field voxels
+        that previously crushed the ET signal toward zero under max-norm.
     """
-    em = np.clip(t1ce.astype(np.float32) - alpha * t1.astype(np.float32), 0.0, None)
-    if normalise and em.max() > 0:
-        em = em / em.max()
+    a = t1ce.astype(np.float32)
+    b = t1.astype(np.float32)
+    if brain_mask is None:
+        # Fall back to "non-zero in either modality" — same convention as
+        # preprocess_volume.  Cheap and avoids needing the mask threaded
+        # through every call site.
+        brain_mask = ((np.abs(a) + np.abs(b)) > 0).astype(np.uint8)
+    bm = brain_mask.astype(bool)
+    a = np.where(bm, a, 0.0)
+    b = np.where(bm, b, 0.0)
+
+    em = np.clip(a - alpha * b, 0.0, None)
+    if normalise:
+        pos_in_brain = em[bm & (em > 0)]
+        if pos_in_brain.size > 0:
+            denom = float(np.percentile(pos_in_brain, norm_percentile))
+            if denom > 0:
+                em = np.clip(em / denom, 0.0, 1.0)
     return em.astype(np.float32)
 
 
